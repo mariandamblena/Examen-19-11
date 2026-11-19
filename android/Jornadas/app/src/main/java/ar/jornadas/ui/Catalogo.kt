@@ -20,19 +20,24 @@ fun Catalogo(model: ProgramaModel, lista: LazyListState = rememberLazyListState(
     // Sin LaunchedEffect: entrar a esta pantalla (rotar, volver de una ficha, cambiar de
     // pestaña) no debe descargar nada. Solo dibuja el estado que publica el ViewModel.
     val agenda = model.agenda.collectAsStateWithLifecycle().value ?: return
+    val edicion = agenda.edicion
     val descargando = agenda.descarga == Descarga.EnCurso
-    // Los filtros no dependen de la descarga: siguen editables durante la espera.
-    Selector(DIAS, agenda.dia, model::elegirDia)
-    Selector(TEMAS, TEMAS.indexOf(agenda.tema)) { model.elegirTema(TEMAS[it]) }
-    TextButton(onClick = model::recargar, enabled = !descargando) { Text("Actualizar") }
-    if (descargando) LinearProgressIndicator(Modifier.fillMaxWidth())
-    when {
-        agenda.edicion == null -> SinEdicion(agenda.descarga, model::recargar)
-        agenda.edicion.cantidad == 0 -> Text("Esta edición llegó sin charlas programadas.")
-        agenda.charlas.isNotEmpty() && agenda.visibles.isEmpty() ->
-            Text("Ninguna charla coincide con los filtros elegidos.")
-        else -> Grilla(agenda.visibles, lista, abrir)
-    }
+    val hayCharlas = edicion != null && edicion.cantidad > 0
+    // Filtros, botón y avisos son el primer elemento de la lista: toda la pantalla se
+    // desplaza junta, y con poca altura (horizontal) las charlas siguen al alcance.
+    Grilla(if (hayCharlas) agenda.visibles else emptyList(), lista, encabezado = {
+        // Los filtros no dependen de la descarga: siguen editables durante la espera.
+        Selector(DIAS, agenda.dia, model::elegirDia)
+        Selector(TEMAS, TEMAS.indexOf(agenda.tema)) { model.elegirTema(TEMAS[it]) }
+        TextButton(onClick = model::recargar, enabled = !descargando) { Text("Actualizar") }
+        if (descargando) LinearProgressIndicator(Modifier.fillMaxWidth())
+        when {
+            edicion == null -> SinEdicion(agenda.descarga, model::recargar)
+            edicion.cantidad == 0 -> Text("Esta edición llegó sin charlas programadas.")
+            agenda.charlas.isNotEmpty() && agenda.visibles.isEmpty() ->
+                Text("Ninguna charla coincide con los filtros elegidos.")
+        }
+    }, abrir = abrir)
 }
 
 /** Nunca hubo una descarga exitosa: no hay datos guardados que mostrar. */
@@ -63,9 +68,17 @@ private fun Selector(opciones: List<String>, indice: Int, elegir: (Int) -> Unit)
 }
 
 @Composable
-fun Grilla(fichas: List<Charla>, lista: LazyListState = rememberLazyListState(), abrir: (String) -> Unit) {
-    LazyColumn(state = lista, verticalArrangement = Arrangement.spacedBy(8.dp),
+fun Grilla(fichas: List<Charla>, lista: LazyListState = rememberLazyListState(),
+    encabezado: (@Composable ColumnScope.() -> Unit)? = null, abrir: (String) -> Unit) {
+    // fillMaxWidth: sin esto la lista mide lo que su contenido y, cuando solo se ve el
+    // encabezado, no se puede deslizar desde la parte vacía de la pantalla.
+    LazyColumn(state = lista, modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp)) {
+        if (encabezado != null) item(key = "__encabezado") {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = encabezado)
+        }
         items(fichas, key = { it.id }) { ficha ->
             ElevatedCard(onClick = { abrir(ficha.id) }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
